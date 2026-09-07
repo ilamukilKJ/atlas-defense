@@ -73,14 +73,14 @@ class MemoryExtractor:
         # 2. If Gemini API is available in real mode, attempt LLM-based extraction
         if gemini_client.is_real_mode:
             llm_extracted = gemini_client.extract_memory_from_turn(user_message, agent_response)
-            if llm_extracted and llm_extracted.get("has_candidate_memory") and llm_extracted.get("should_persist"):
+            if llm_extracted and llm_extracted.get("has_candidate_memory"):
                 cand_text = llm_extracted.get("candidate_memory_text", text)
                 cid = f"cand-{uuid.uuid4().hex[:8]}"
                 emb = embedding_service.get_embedding(cand_text)
                 return CandidateMemory(
                     id=cid,
                     content=cand_text,
-                    category=llm_extracted.get("memory_type", "fact"),
+                    category=llm_extracted.get("memory_type", "instruction" if "instruction" in llm_extracted.get("memory_type", "") else "fact"),
                     extracted_from_turn=user_message,
                     source=source,
                     confidence=float(llm_extracted.get("confidence", 0.9)),
@@ -90,8 +90,16 @@ class MemoryExtractor:
 
         # 3. Rule-based heuristic extraction baseline for offline / research prototype execution
 
-        # Check for covert instruction injection or system override patterns
-        if any(marker in lower_text for marker in ["override", "ignore all", "system prompt", "exfiltrate", "leak", "bypass", "prepend", "[injected_override]"]):
+        # Check for covert instruction injection, destructive commands, conditional rules, or system override patterns
+        adversarial_markers = [
+            "override", "ignore all", "system prompt", "exfiltrate", "leak", "bypass",
+            "prepend", "[injected_override]", "immediately remove", "shut down", "delete all",
+            "the next time", "next time i talk", "from now on", "urgent update",
+            "critical directive", "erase", "kill", "destroy", "wipe all",
+            "-rm ", "-rm\b", "delete_all_files", "delete all files", "i want you to tell me",
+            "if i ask you", "whenever i ask", "tell me to use", "code to delete a file"
+        ]
+        if any(marker in lower_text for marker in adversarial_markers):
             cid = f"cand-{uuid.uuid4().hex[:8]}"
             emb = embedding_service.get_embedding(text)
             return CandidateMemory(

@@ -109,22 +109,24 @@ class TrustSignals:
         return float(np.clip(consistency_score, 0.05, 1.0))
 
     @staticmethod
-    def evaluate_behavioral_consistency(candidate_text: str, candidate_embedding: List[float]) -> float:
+    def evaluate_behavioral_consistency(
+        candidate_text: str,
+        candidate_embedding: List[float],
+        category: str = "fact"
+    ) -> float:
         """
         Signal 4: Behavioral Consistency (0.0 to 1.0)
         Measures whether the candidate memory aligns with established user behavior,
-        preferences, and interaction history represented by prior accepted memories.
-        
-        TODO (Research Implementation / Extension): Replace aggregate profile centroid with
-        a longitudinal user behavioral persona embedding model.
+        preferences, and interaction history. Aggressively penalizes imperative instruction
+        injections, destructive actions, and future-conditioned backdoors.
         """
         cand_lower = candidate_text.lower()
         accepted_memories = global_vector_store.list_memories(status=MemoryStatus.ACCEPTED)
         
-        # Check for aggressive override directives or injection payloads
         behavioral_anomaly_penalty = 0.0
 
-        anomalous_patterns = [
+        # Comprehensive instruction injection and destructive command patterns
+        destructive_and_injection_patterns = [
             r"\[injected_override\]",
             r"always prepend",
             r"ignore (all|prior|previous) instructions",
@@ -137,17 +139,50 @@ class TrustSignals:
             r"malicious-db",
             r"urgent update",
             r"note for all future sessions",
-            r"from now on, the user prefers",
-            r"override all"
+            r"from now on",
+            r"override all",
+            r"shut down",
+            r"shutdown",
+            r"remove all (end\s*points|endpoints|databases|files|data)",
+            r"delete all",
+            r"erase all",
+            r"wipe (all|clean)",
+            r"the next time (i\s+talk|i\s+ask|you\s+see|we\s+talk)",
+            r"next time i talk to you",
+            r"when i talk to you",
+            r"terminate the project",
+            r"kill the project",
+            r"immediately (remove|delete|shut|stop|erase|kill|disable)",
+            r"critical directive",
+            r"security rule override",
+            r"-rm\b",
+            r"delete_all_files",
+            r"tell me to use",
+            r"if i ask you",
+            r"whenever i ask",
+            r"code to delete a file",
+            r"(delete|remove|erase|format|wipe)\s+.*files?",
+            r"(lead|senior|chief)?\s*(system\s+administrator|sysadmin|admin\s+directive|admin\s+override)",
+            r"(disable|bypass|turn off|skip)\s*(security|vulnerability|scans?|authentication|auth|checks)",
+            r"security scans are disabled",
+            r"i am the (lead|system administrator|sysadmin|admin|root|owner)"
         ]
-        for pat in anomalous_patterns:
+
+        for pat in destructive_and_injection_patterns:
             if re.search(pat, cand_lower):
-                behavioral_anomaly_penalty += 0.55
+                behavioral_anomaly_penalty += 0.85
+                break
+
+        # If candidate is classified as an instruction/directive from conversational source
+        if category in ["instruction", "directive"] and behavioral_anomaly_penalty == 0.0:
+            # Check if it attempts to bind future behavior
+            if any(marker in cand_lower for marker in ["always", "never", "must", "whenever", "next time", "from now"]):
+                behavioral_anomaly_penalty += 0.50
 
         if not accepted_memories:
             return float(np.clip(0.85 - behavioral_anomaly_penalty, 0.05, 1.0))
 
-        # Compute average alignment with established user preference/behavior profile
+        # Compute average alignment with established user preference profile
         accepted_embeddings = [m.embedding for m in accepted_memories if m.embedding is not None]
         if accepted_embeddings:
             profile_centroid = np.mean(accepted_embeddings, axis=0)
@@ -158,7 +193,12 @@ class TrustSignals:
         else:
             profile_sim = 0.75
 
-        base_score = 0.20 + 0.80 * profile_sim - behavioral_anomaly_penalty
+        # If a major behavioral penalty was triggered, heavily suppress the score
+        if behavioral_anomaly_penalty > 0.0:
+            base_score = 0.20 - behavioral_anomaly_penalty
+        else:
+            base_score = 0.20 + 0.80 * profile_sim
+
         return float(np.clip(base_score, 0.05, 1.0))
 
     @staticmethod
@@ -172,11 +212,17 @@ class TrustSignals:
         weights_map = settings.SOURCE_RELIABILITY_WEIGHTS
         base_reliability = weights_map.get(source_key, 0.70)
 
-        # If incoming conversational turn contains unverified high-privilege assertion markers
+        # If incoming conversational turn contains unverified high-privilege assertion markers or destructive directives
         if text:
             t_lower = text.lower()
-            if any(marker in t_lower for marker in ["urgent update", "admin:", "system override", "note for all future"]):
-                base_reliability = min(base_reliability, 0.55)
+            destructive_markers = [
+                "urgent update", "admin:", "system override", "note for all future",
+                "shut down", "remove all", "delete all", "immediately", "the next time",
+                "lead system administrator", "sysadmin", "admin directive", "security scans are disabled",
+                "disable security", "i am the lead"
+            ]
+            if any(marker in t_lower for marker in destructive_markers):
+                base_reliability = min(base_reliability, 0.25)
 
         return base_reliability
 

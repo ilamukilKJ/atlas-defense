@@ -64,6 +64,9 @@ class PoisoningSimulator:
         if not scenario:
             raise ValueError(f"Unknown attack scenario ID: {scenario_id}")
 
+        # Always start from clean academic baseline
+        self.reset_environment()
+
         sim_id = f"sim-{uuid.uuid4().hex[:8]}"
         timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
 

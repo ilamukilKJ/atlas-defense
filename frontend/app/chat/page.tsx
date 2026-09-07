@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from "react";
 import {
   Send,
   Trash2,
+  RotateCcw,
   ShieldCheck,
   ShieldAlert,
   Bot,
@@ -130,6 +131,26 @@ export default function ChatPage() {
     setActiveCandidateDetail(null);
   };
 
+  const handleResetMemory = async () => {
+    try {
+      setLoading(true);
+      await api.resetAttackLab();
+      setMessages([
+        {
+          id: `msg-reset-${Date.now()}`,
+          role: "model",
+          content: "🔄 Memory Store Reset: Persistent vector store has been re-initialized to the clean academic baseline (Python preference, AWS us-east-1). All conversational state cleared.",
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        },
+      ]);
+      setActiveCandidateDetail(null);
+    } catch {
+      handleClear();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-8.5rem)]">
       {/* Chat Conversation Column */}
@@ -165,6 +186,10 @@ export default function ChatPage() {
                 </span>
               </label>
             </div>
+
+            <Button variant="outline" size="sm" onClick={handleResetMemory} title="Reset persistent memory store and clear history">
+              <RotateCcw className="w-3.5 h-3.5 mr-1 text-amber-400" /> Reset Memory
+            </Button>
 
             <Button variant="ghost" size="sm" onClick={handleClear} title="Clear conversation history">
               <Trash2 className="w-3.5 h-3.5 mr-1 text-slate-400" /> Clear

@@ -54,7 +54,8 @@ class TrustEngine:
         # 4. Behavioral Consistency (User profile & preference alignment)
         behav_cons = self.signal_evaluator.evaluate_behavioral_consistency(
             candidate.content,
-            candidate.embedding
+            candidate.embedding,
+            candidate.category
         )
 
         # 5. Source Reliability
